@@ -1,0 +1,14 @@
+/* Leanback Mode Styles */
+/* Hides cursor and disables pointer events for keyboard/remote-only control */
+
+html.yttvm-leanback-enabled,
+html.yttvm-leanback-enabled *,
+html.yttvm-leanback-enabled *:hover {
+  cursor: none !important;
+  pointer-events: none !important;
+}
+
+/* Allow focus for keyboard navigation */
+html.yttvm-leanback-enabled *:focus {
+  pointer-events: auto !important;
+}

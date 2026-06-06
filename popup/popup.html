@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>YouTube TV Mode</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-color: #000000;
+      --card-bg: #1a1a1a;
+      --accent-color: #ff0000;
+      --text-primary: #ffffff;
+      --text-secondary: #888888;
+      --footer-text: #ffda79;
+    }
+
+    body {
+      width: 320px;
+      margin: 0;
+      padding: 24px;
+      background-color: var(--bg-color);
+      color: var(--text-primary);
+      font-family: 'Outfit', sans-serif;
+      user-select: none;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .header img {
+      width: 32px;
+      height: 32px;
+      border-radius: 6px;
+    }
+
+    .header h1 {
+      font-size: 1.25rem;
+      margin: 0;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .setting-card {
+      background-color: var(--card-bg);
+      padding: 20px;
+      border-radius: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .info {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .label {
+      font-weight: 700;
+      font-size: 1.1rem;
+    }
+
+    .description {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      font-weight: 400;
+    }
+
+    .footer {
+      margin-top: 24px;
+      text-align: center;
+      font-size: 0.85rem;
+      color: var(--footer-text);
+      line-height: 1.5;
+      opacity: 0.9;
+    }
+
+    .footer span {
+      display: block;
+      margin-top: 4px;
+      font-weight: 500;
+    }
+
+    /* Toggle Switch */
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 50px;
+      height: 26px;
+      flex-shrink: 0;
+    }
+
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #333;
+      transition: .3s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 24px;
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 4px;
+      bottom: 4px;
+      background-color: white;
+      transition: .3s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 50%;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    }
+
+    input:checked+.slider {
+      background-color: var(--accent-color);
+    }
+
+    input:checked+.slider:before {
+      transform: translateX(24px);
+    }
+  </style>
+</head>
+
+<body>
+  <div class="header">
+    <img src="../icons/icon-48.png" alt="Logo">
+    <h1>YouTube TV Mode</h1>
+  </div>
+
+  <div class="setting-card">
+    <div class="info">
+      <span class="label">TV Mode</span>
+      <span class="description" id="statusText">Enable YouTube TV interface</span>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="tvModeToggle">
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="footer">
+    ✨ Don't forget to customize features in <span>YouTube TV Settings &rarr; Extension Settings</span>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+
+</html>
