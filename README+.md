@@ -10,112 +10,139 @@
 
 ---
 
-## Technical Deep Dive
+## Architecture
 
-### Architecture & Coordination
+### Layers
 
-YouTube TV Mode is built using a modular, event-driven architecture designed to balance performance with deep page state awareness.
+1. **Background service worker** (`background.js`)  
+   TV URL redirect (via `lib/redirect.js`), auto-fullscreen + window restore, DNR ruleset enable/disable when TV Mode toggles.
 
-#### **Layered Injection Model**
-1. **Content Script Coordinator**: Running at `document_start`, it synchronously injects feature modules before the browser has a chance to render the DOM or detect the User-Agent.
-2. **Feature Modules**: Isolated scripts (spoofing, thumbnails, remapping) that self-initialize and subscribe to a global message bus for reactive settings updates.
-3. **Settings Integration**: A specialized module that patches directly into the YouTube TV React-like internals to inject a native-feeling configurations UI.
+2. **Content script** (`lib/defaults.js` + `content.js`)  
+   Sequential injection of shared page modules and conditional features; `postMessage` bridge with token `yttvm-bridge-v1`.
 
-### Key Technologies
+3. **Page context** (`shared/*`, `features/*`, `settingsIntegration.js`)  
+   Runs in the YouTube TV page: spoofing, JSON middleware, player helpers, native settings UI.
 
-#### **Native Framework Patching (Settings & Popups)**
-To build menus that feel truly native, the extension hooks into `window._yttv`. By proxying and overriding the `resolveCommand` dispatch method, we intercept custom actions (e.g. `YTTVM_OPEN_SETTINGS`). Utilizing the `commandExecutorCommand.commands` wrapping patterns utilized by YouTube TV modals, we achieve fully interactive multi-level sub-menus.
+### Shared page modules
 
-#### **Network & Response Interception**
-- **Thumbnails:** The `highQualityThumbnails` feature overrides the global `fetch` function and the `HTMLImageElement.prototype.src` property descriptor. This rewrites thumbnail URLs on-the-fly (`hqdefault` to `maxresdefault`) without waiting for the DOM.
-- **Guide Filtering:** The `hideGuide` feature patches `JSON.parse` to intercept API responses. Guide entries are modified structurally before the React tree ever renders them.
+| File | Role |
+|------|------|
+| `lib/defaults.js` | Defaults, message constants, `resolveBool` |
+| `lib/thumbnail-url.js` | Pure thumbnail URL upgrades |
+| `lib/redirect.js` | Pure TV↔desktop URL mapping |
+| `shared/page-init.js` | `window.__yttvm` namespace + debug logging |
+| `shared/settings-bridge.js` | Settings get/set/onChange |
+| `shared/json-interceptor.js` | Single `JSON.parse` middleware chain + `_yttv` rebind |
+| `shared/player-utils.js` | Video/player watchers (backoff / observers) |
 
-#### **Smart Fullscreen Window State Tracking**
-Traditional HTML5 `requestFullscreen()` forces the browser to consume the `Escape` key, breaking TV app navigation. Switching to a background `chrome.windows.update({state: "fullscreen"})` preserves the `Escape` key for the web app. To prevent window-resizing jank upon exiting fullscreen, an event bridge immediately triggers `WINDOW_RESIZED`, allowing the background worker to seamlessly restore exact prior `top/left/width/height` window coordinates from memory.
+### Feature modules
 
-#### **CSP-Safe CSS Injection (Leanback Mode)**
-Instead of inline script injections that violate YouTube's strict Content Security Policy, Leanback mode dynamically evaluates and attaches a dedicated `<link rel="stylesheet">` extracted directly via valid DOM dataset extension URIs. 
+| File | Notes |
+|------|--------|
+| `deviceSpoof.js` | Screen / UA / HDR capability spoof |
+| `highQualityThumbnails.js` | Prototype + fetch hooks |
+| `adblock.js` | JSON handler: ads, paid overlay, endscreen, nudges |
+| `forceResolution.js` | Respects `forceResolutionEnabled` + `preferredVideoQuality` |
+| `sponsorblock.js` | Optional; SponsorBlock API |
+| `backgroundPlayback.js` | Visibility shims (reload to toggle) |
+| `leanbackMode.js` | CSS link injection |
+| `keyRemapping.js` | Capture-phase key shims |
+| `playbackSpeed.js` | Persist rate across videos |
+| `hideGuide.js` | Guide JSON filter |
+| `settingsIntegration.js` | Native menus + `resolveCommand` patch |
 
-#### **Key Interaction Shims**
-The TV interface uses complex event handling. Our **Key Remapping** module uses the capture phase of event propagation to ensure that reassigned keys (like Backspace to Escape/Back) are dispatched as fully synthetic `KeyboardEvent`s processed by YouTube's navigation logic.
+### Injection order (TV URLs only)
+
+1. Shared bootstrap (defaults → interceptor → player utils)  
+2. Critical: device spoof, HQ thumbnails  
+3. Conditional optional features from `chrome.storage.local`  
+4. Settings UI last  
 
 ---
 
-## Settings Persistence
+## Settings
 
-Data is stored in `chrome.storage.local` and synchronized between the extension background, content scripts, and Page Context using a `Window.postMessage` bridge:
+Stored in `chrome.storage.local`. Defaults live in `lib/defaults.js`.
 
 ```javascript
-// Example settings structure
 {
   "tvModeEnabled": true,
   "forceResolutionEnabled": true,
+  "preferredVideoQuality": "highres",
   "autoFullscreenEnabled": true,
   "backgroundPlaybackEnabled": true,
   "leanbackModeEnabled": false,
   "highQualityThumbnailsEnabled": true,
   "keyRemappingEnabled": true,
+  "adBlockEnabled": true,
   "playbackSpeedEnabled": true,
   "speedIncrement": 0.25,
-  "playbackSpeed": 1.5,
+  "playbackSpeed": 1.0,
   "miniPlayerEnabled": false,
-  "disabledSidebarContents": ["YOUTUBE_MUSIC", "NEWS"]
+  "sponsorBlockEnabled": false,
+  "sponsorBlockCategories": ["sponsor", "selfpromo", "interaction", "intro", "outro", "preview"],
+  "hideEndScreenCards": false,
+  "hidePaidPromotion": true,
+  "hideSigninReminder": false,
+  "disabledSidebarContents": [],
+  "debugLogging": false
 }
 ```
 
----
+**Reload-required keys** (API patches): TV mode, force quality, background playback, HQ thumbs, key remap, adblock, SponsorBlock, preferred quality.  
 
-## Design Philosophy
-
-The project follows a "Native Enhancement" philosophy:
-- **Visual Integration**: The settings UI uses YouTube's own component rendering engines (`overlayPanelItemListRenderer`, `compactLinkRenderer`) to look indistinguishable from first-party code.
-- **State Efficiency**: Features like Leanback and Guide updates apply smartly via message passing. Sub-menus (like the guide hider) feature a 'Dirty Flag' system ensuring reloads only execute post-modification upon menu closure.
-- **Glassmorphism**: The popup uses a premium frosted glass effect with a custom HSL color palette tailored for entertainment.
+**Instant**: leanback, speed, sidebar list, mini-player flag, debug, etc.
 
 ---
 
-## ❓ FAQ
+## Design notes
 
-### **Q: Why are some settings "Restart Required"?**
-**A:** Features that involve overriding core browser APIs (like `fetch`, `visibilityState`, or `User-Agent`) must be initialized at the very beginning of the page lifecycle. Changing these on a "live" page can cause inconsistent state or site crashes.
-
-### **Q: How does playback continue in the background?**
-**A:** We conditionally shim the `visibilityState` and `hidden` properties of the `document`, as well as intercept the `visibilitychange` event. This tricks YouTube into thinking the tab is always active, preventing it from pausing.
-
-### **Q: Does this work on regular YouTube?**
-**A:** Redirection is active for all YouTube URLs if TV Mode is on. Individual features like Leanback Mode and Key Remapping are scoped specifically to the `/tv/` path to avoid breaking the standard desktop experience.
-
----
-## References
-
-This project utilizes architectural patterns and modified code snippets inspired by the [TizenTube](https://github.com/reisxd/TizenTube) repository.
+- **One JSON.parse chain** — features register handlers; no stacked re-wraps.  
+- **DNR User-Agent** — `rules.json` spoofs TV UA only while ruleset enabled (synced with TV Mode).  
+- **Fullscreen** — `chrome.windows.update({ state: "fullscreen" })` keeps Escape for the app.  
+- **CRX signing** — release workflow uses secret `CRX_PRIVATE_KEY` when present; otherwise ZIP-only (stable identity).  
+- **Logging** — quiet by default; enable **Debug Logging** in Extension Settings.  
 
 ---
 
-## Project Structure
+## Project structure
 
 ```
 YouTubeTVMode/
-├── manifest.json          # Manifest V3 Configuration
-├── background.js          # Redirection, Auto-Fullscreen, & Window Tracking
-├── content.js             # Feature Coordinator (Injection Engine & Messaging)
-├── settingsIntegration.js # UI Integration & Command Resolver Patching
-├── features/              # Feature Logic (Standalone Modules)
-│   ├── deviceSpoof.js
-│   ├── forceResolution.js
-│   ├── backgroundPlayback.js
-│   ├── leanbackMode.js
-│   ├── highQualityThumbnails.js
-│   ├── keyRemapping.js
-│   ├── playbackSpeed.js
-│   └── hideGuide.js
-├── styles/
-│   └── leanback.css       # Dedicated Cursor-Hiding Styles
-├── popup/                 # Toolbar Menu (HTML/JS)
-├── icons/                 # Project Assets
-└── rules.json             # Declarative Net Request Rules
+├── manifest.json
+├── background.js
+├── content.js
+├── settingsIntegration.js
+├── rules.json
+├── lib/                 # Shared pure helpers (+ content/background)
+├── shared/              # Page-context infrastructure
+├── features/            # Page-context features
+├── styles/leanback.css
+├── popup/
+├── tests/               # node:test unit tests
+├── docs/                # Landing page + REFERENCES.md
+└── package.json
 ```
 
+Optional local upstream clone: see [docs/REFERENCES.md](docs/REFERENCES.md).
+
 ---
+
+## FAQ
+
+### Why do some toggles reload the page?
+Features that patch `fetch`, visibility, or inject once at start need a clean page lifecycle.
+
+### Does SponsorBlock send my video IDs?
+It hashes the video id (SHA-256 prefix) and queries the public SponsorBlock API, same model as other SB clients.
+
+### Does this affect normal YouTube?
+Redirect only when TV Mode is on. Feature scripts inject only on `/tv` URLs.
+
+---
+
+## License & credits
+
+GPL-3.0. Architectural patterns inspired by [TizenTube](https://github.com/reisxd/TizenTube).
 
 [← Back to Main README](README.md)

@@ -1,92 +1,92 @@
-// Ad Blocker
-// Intercepts JSON.parse to strip ad-related data from YouTube TV API responses.
-// Adapted from TizenTube (https://github.com/reisxd/TizenTube)
-
+// Ad Blocker — JSON middleware (stronger filters, settings-aware)
 (() => {
-    'use strict';
+  'use strict';
 
-    // Setting state — updated via postMessage relay from content script
-    let adBlockEnabled = true; // Default: ON
+  const ns = window.__yttvm;
+  if (!ns?.json) return;
 
-    // Listen for setting changes from content script
-    window.addEventListener('message', (event) => {
-        if (event.source !== window || !event.data) return;
-        if (event.data.source === 'yttvm-settings-change' && event.data.key === 'adBlockEnabled') {
-            adBlockEnabled = event.data.value !== false;
+  function filterShelfContents(contents) {
+    if (!Array.isArray(contents)) return contents;
+    return contents
+      .filter((elm) => !elm.adSlotRenderer)
+      .map((shelf) => {
+        const items = shelf.shelfRenderer?.content?.horizontalListRenderer?.items;
+        if (items) {
+          shelf.shelfRenderer.content.horizontalListRenderer.items = items.filter(
+            (item) => !item.adSlotRenderer
+          );
         }
-        if (event.data.source === 'yttvm-content' && event.data.type === 'SETTINGS_RESPONSE') {
-            adBlockEnabled = event.data.settings?.adBlockEnabled !== false;
-        }
-    });
+        return shelf;
+      });
+  }
 
-    // ── JSON.parse interception ──────────────────────────────────────────
+  function stripAds(obj) {
+    const adOn = ns.settings?.isEnabled('adBlockEnabled');
 
-    const origParse = JSON.parse;
+    if (adOn) {
+      if (obj.adPlacements) obj.adPlacements = [];
+      if (obj.playerAds) obj.playerAds = false;
+      if (obj.adSlots) obj.adSlots = [];
 
-    JSON.parse = function () {
-        const r = origParse.apply(this, arguments);
-        if (!r || typeof r !== 'object' || !adBlockEnabled) return r;
+      if (obj.playerResponse) {
+        if (obj.playerResponse.adPlacements) obj.playerResponse.adPlacements = [];
+        if (obj.playerResponse.playerAds) obj.playerResponse.playerAds = false;
+        if (obj.playerResponse.adSlots) obj.playerResponse.adSlots = [];
+      }
 
-        // Strip video ad placements
-        if (r.adPlacements) {
-            r.adPlacements = [];
-        }
+      if (!Array.isArray(obj) && obj.entries) {
+        obj.entries = obj.entries.filter(
+          (elm) => !elm?.command?.reelWatchEndpoint?.adClientParams?.isAd
+        );
+      }
+    }
 
-        // Strip player ads
-        if (r.playerAds) {
-            r.playerAds = false;
-        }
+    if (ns.settings?.isEnabled('hidePaidPromotion') && obj.paidContentOverlay) {
+      obj.paidContentOverlay = null;
+    }
 
-        // Strip ad slots (required alongside adPlacements)
-        if (r.adSlots) {
-            r.adSlots = [];
-        }
+    if (ns.settings?.isEnabled('hideEndScreenCards') && obj.endscreen) {
+      obj.endscreen = null;
+    }
 
-        // Strip "masthead" / banner ads from the home screen
-        if (
-            r?.contents?.tvBrowseRenderer?.content?.tvSurfaceContentRenderer?.content
-                ?.sectionListRenderer?.contents
-        ) {
-            const contents = r.contents.tvBrowseRenderer.content.tvSurfaceContentRenderer
-                .content.sectionListRenderer.contents;
+    if (Array.isArray(obj.messages) && ns.settings?.isEnabled('hideSigninReminder')) {
+      obj.messages = obj.messages.filter((msg) => !msg?.youThereRenderer);
+    }
 
-            // Remove top-level ad slot renderers
-            r.contents.tvBrowseRenderer.content.tvSurfaceContentRenderer
-                .content.sectionListRenderer.contents = contents.filter(
-                    (elm) => !elm.adSlotRenderer
-                );
+    const homePath =
+      obj?.contents?.tvBrowseRenderer?.content?.tvSurfaceContentRenderer?.content
+        ?.sectionListRenderer;
 
-            // Remove ad slots within shelf items
-            for (const shelf of r.contents.tvBrowseRenderer.content.tvSurfaceContentRenderer
-                .content.sectionListRenderer.contents) {
-                if (shelf.shelfRenderer?.content?.horizontalListRenderer?.items) {
-                    shelf.shelfRenderer.content.horizontalListRenderer.items =
-                        shelf.shelfRenderer.content.horizontalListRenderer.items.filter(
-                            (item) => !item.adSlotRenderer
-                        );
-                }
-            }
-        }
+    if (homePath?.contents) {
+      let contents = homePath.contents;
 
-        // Remove Shorts ads
-        if (!Array.isArray(r) && r?.entries) {
-            r.entries = r.entries?.filter(
-                (elm) => !elm?.command?.reelWatchEndpoint?.adClientParams?.isAd
-            );
-        }
+      if (ns.settings?.isEnabled('hideSigninReminder')) {
+        contents = contents.filter((elm) => !elm.feedNudgeRenderer);
+      }
 
-        return r;
-    };
+      if (adOn) {
+        contents = filterShelfContents(contents);
+      }
 
-    // Patch internal _yttv JSON.parse references to use our wrapped version
-    window.JSON.parse = JSON.parse;
-    setInterval(() => {
-        for (const key in window._yttv || {}) {
-            if (window._yttv[key]?.JSON?.parse && window._yttv[key].JSON.parse !== window.JSON.parse) {
-                window._yttv[key].JSON.parse = window.JSON.parse;
-            }
-        }
-    }, 1000);
+      homePath.contents = contents;
+    }
 
-    console.log('[YouTube TV Mode] Ad blocker initialized');
+    if (adOn) {
+      if (obj?.contents?.sectionListRenderer?.contents) {
+        obj.contents.sectionListRenderer.contents = filterShelfContents(
+          obj.contents.sectionListRenderer.contents
+        );
+      }
+      if (obj?.continuationContents?.sectionListContinuation?.contents) {
+        obj.continuationContents.sectionListContinuation.contents = filterShelfContents(
+          obj.continuationContents.sectionListContinuation.contents
+        );
+      }
+    }
+
+    return obj;
+  }
+
+  ns.json.register('adblock', stripAds, 10);
+  ns.log?.('adblock registered');
 })();

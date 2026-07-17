@@ -1,0 +1,17 @@
+{
+  "name": "youtube-tv-mode",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Chrome extension: YouTube TV Mode for desktop",
+  "license": "GPL-3.0-or-later",
+  "scripts": {
+    "test": "node --test tests/redirect.test.js tests/thumbnail-url.test.js tests/defaults.test.js",
+    "lint": "eslint lib shared features content.js background.js settingsIntegration.js popup/popup.js tests"
+  },
+  "devDependencies": {
+    "eslint": "^9.16.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

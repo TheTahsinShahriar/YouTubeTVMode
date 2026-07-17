@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.pem
+_metadata/
+.DS_Store
+Thumbs.db
+
+# Optional local copy of upstream TizenTube reference code (not shipped).
+# Clone separately if you need it for development:
+#   git clone https://github.com/reisxd/TizenTube.git references
+references/
+References/

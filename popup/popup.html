@@ -4,9 +4,6 @@
 <head>
   <meta charset="UTF-8">
   <title>YouTube TV Mode</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
       --bg-color: #000000;
@@ -15,15 +12,20 @@
       --text-primary: #ffffff;
       --text-secondary: #888888;
       --footer-text: #ffda79;
+      --border: rgba(255, 255, 255, 0.06);
+    }
+
+    * {
+      box-sizing: border-box;
     }
 
     body {
-      width: 320px;
+      width: 340px;
       margin: 0;
-      padding: 24px;
+      padding: 20px;
       background-color: var(--bg-color);
       color: var(--text-primary);
-      font-family: 'Outfit', sans-serif;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell, sans-serif;
       user-select: none;
       -webkit-font-smoothing: antialiased;
     }
@@ -32,7 +34,7 @@
       display: flex;
       align-items: center;
       gap: 12px;
-      margin-bottom: 24px;
+      margin-bottom: 16px;
     }
 
     .header img {
@@ -41,62 +43,88 @@
       border-radius: 6px;
     }
 
+    .header-text {
+      flex: 1;
+      min-width: 0;
+    }
+
     .header h1 {
-      font-size: 1.25rem;
+      font-size: 1.15rem;
       margin: 0;
       font-weight: 700;
       letter-spacing: -0.02em;
     }
 
+    .version {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      margin-top: 2px;
+    }
+
     .setting-card {
       background-color: var(--card-bg);
-      padding: 20px;
+      padding: 14px 16px;
       border-radius: 12px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-      border: 1px solid rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      margin-bottom: 8px;
+    }
+
+    .setting-card.primary {
+      padding: 18px 16px;
+      margin-bottom: 12px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
     }
 
     .info {
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 2px;
+      padding-right: 12px;
     }
 
     .label {
-      font-weight: 700;
-      font-size: 1.1rem;
+      font-weight: 650;
+      font-size: 0.95rem;
     }
 
     .description {
-      font-size: 0.85rem;
+      font-size: 0.78rem;
       color: var(--text-secondary);
       font-weight: 400;
+      line-height: 1.3;
+    }
+
+    .section-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-secondary);
+      margin: 4px 0 8px 2px;
+      font-weight: 600;
     }
 
     .footer {
-      margin-top: 24px;
+      margin-top: 14px;
       text-align: center;
-      font-size: 0.85rem;
+      font-size: 0.78rem;
       color: var(--footer-text);
-      line-height: 1.5;
-      opacity: 0.9;
+      line-height: 1.45;
+      opacity: 0.95;
     }
 
-    .footer span {
-      display: block;
-      margin-top: 4px;
-      font-weight: 500;
+    .footer a {
+      color: var(--footer-text);
+      text-decoration: underline;
     }
 
-    /* Toggle Switch */
     .switch {
       position: relative;
       display: inline-block;
-      width: 50px;
-      height: 26px;
+      width: 46px;
+      height: 24px;
       flex-shrink: 0;
     }
 
@@ -109,26 +137,23 @@
     .slider {
       position: absolute;
       cursor: pointer;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
+      inset: 0;
       background-color: #333;
-      transition: .3s cubic-bezier(0.4, 0, 0.2, 1);
+      transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
       border-radius: 24px;
     }
 
     .slider:before {
       position: absolute;
       content: "";
-      height: 18px;
-      width: 18px;
+      height: 16px;
+      width: 16px;
       left: 4px;
       bottom: 4px;
       background-color: white;
-      transition: .3s cubic-bezier(0.4, 0, 0.2, 1);
+      transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
       border-radius: 50%;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.25);
     }
 
     input:checked+.slider {
@@ -136,7 +161,7 @@
     }
 
     input:checked+.slider:before {
-      transform: translateX(24px);
+      transform: translateX(22px);
     }
   </style>
 </head>
@@ -144,10 +169,13 @@
 <body>
   <div class="header">
     <img src="../icons/icon-48.png" alt="Logo">
-    <h1>YouTube TV Mode</h1>
+    <div class="header-text">
+      <h1>YouTube TV Mode</h1>
+      <div class="version" id="versionText">v…</div>
+    </div>
   </div>
 
-  <div class="setting-card">
+  <div class="setting-card primary">
     <div class="info">
       <span class="label">TV Mode</span>
       <span class="description" id="statusText">Enable YouTube TV interface</span>
@@ -158,8 +186,55 @@
     </label>
   </div>
 
+  <div class="section-label">Quick settings</div>
+
+  <div class="setting-card">
+    <div class="info">
+      <span class="label">Auto Fullscreen</span>
+      <span class="description">Fullscreen when opening TV</span>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="autoFullscreenToggle">
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="setting-card">
+    <div class="info">
+      <span class="label">Ad Blocker</span>
+      <span class="description">Strip TV ads when possible</span>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="adBlockToggle">
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="setting-card">
+    <div class="info">
+      <span class="label">SponsorBlock</span>
+      <span class="description">Skip sponsored segments</span>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="sponsorBlockToggle">
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="setting-card">
+    <div class="info">
+      <span class="label">Leanback</span>
+      <span class="description">Hide cursor & mouse</span>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="leanbackToggle">
+      <span class="slider"></span>
+    </label>
+  </div>
+
   <div class="footer">
-    ✨ Don't forget to customize features in <span>YouTube TV Settings &rarr; Extension Settings</span>
+    Full options live in YouTube TV<br>
+    <span>Settings → Extension Settings</span>
   </div>
 
   <script src="popup.js"></script>

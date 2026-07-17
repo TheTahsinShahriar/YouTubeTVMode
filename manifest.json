@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YouTube TV Mode",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Enables YouTube TV mode on desktop with enhanced features.",
   "icons": {
     "16": "icons/icon-16.png",
@@ -23,6 +23,7 @@
         "*://*.youtube.com/*"
       ],
       "js": [
+        "lib/defaults.js",
         "content.js"
       ],
       "run_at": "document_start"
@@ -39,17 +40,23 @@
   },
   "permissions": [
     "declarativeNetRequest",
-    "scripting",
     "storage",
     "tabs",
     "windows"
   ],
   "host_permissions": [
-    "*://*.youtube.com/*"
+    "*://*.youtube.com/*",
+    "https://sponsor.ajay.app/*"
   ],
   "web_accessible_resources": [
     {
       "resources": [
+        "lib/defaults.js",
+        "lib/thumbnail-url.js",
+        "shared/page-init.js",
+        "shared/settings-bridge.js",
+        "shared/json-interceptor.js",
+        "shared/player-utils.js",
         "features/adblock.js",
         "features/deviceSpoof.js",
         "features/forceResolution.js",
@@ -59,6 +66,7 @@
         "features/keyRemapping.js",
         "features/playbackSpeed.js",
         "features/hideGuide.js",
+        "features/sponsorblock.js",
         "settingsIntegration.js",
         "styles/leanback.css"
       ],

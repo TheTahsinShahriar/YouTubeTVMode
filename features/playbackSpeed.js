@@ -1,55 +1,55 @@
-// Playback Speed
-// Persists and restores custom playback speed across video loads.
-
+// Playback speed persistence (event-driven video watch)
 (() => {
-    'use strict';
+  'use strict';
 
-    let savedSpeed = 1.0;
-    let lastAttachedVideo = null;
+  const ns = window.__yttvm;
+  if (!ns?.player) return;
 
-    function applySpeed(video) {
-        if (!video || savedSpeed === 1.0) return;
-        video.playbackRate = savedSpeed;
+  let savedSpeed = 1.0;
+
+  function readSpeedFromSettings() {
+    const speed = ns.settings?.getNumber('playbackSpeed', 1.0);
+    if (!isNaN(speed) && speed > 0) savedSpeed = speed;
+  }
+
+  function applySpeed(video) {
+    if (!video || savedSpeed === 1.0) return;
+    try {
+      video.playbackRate = savedSpeed;
+    } catch {
+      /* ignore */
     }
+  }
 
-    setInterval(() => {
-        try {
-            const video = document.querySelector('video');
-            if (video) {
-                if (video !== lastAttachedVideo) {
-                    lastAttachedVideo = video;
-                    video.addEventListener('canplay', () => applySpeed(video));
-                    video.addEventListener('play', () => applySpeed(video));
-                    applySpeed(video);
-                } else {
-                    // Keep speed in sync in case native player reset it
-                    if (savedSpeed !== 1.0 && video.playbackRate !== savedSpeed) {
-                        applySpeed(video);
-                    }
-                }
-            }
-        } catch (e) {
-            console.warn('[Playback Speed] Error checking video speed:', e);
-        }
-    }, 1000);
-
-    window.addEventListener('message', (event) => {
-        if (event.source !== window) return;
-
-        if (event.data?.source === 'yttvm-content' && event.data?.type === 'SETTINGS_RESPONSE') {
-            const speed = parseFloat(event.data.settings?.playbackSpeed);
-            if (!isNaN(speed) && speed > 0) {
-                savedSpeed = speed;
-                applySpeed(document.querySelector('video'));
-            }
-        }
-
-        if (event.data?.source === 'yttvm-settings-change' && event.data.key === 'playbackSpeed') {
-            const speed = parseFloat(event.data.value);
-            if (!isNaN(speed) && speed > 0) {
-                savedSpeed = speed;
-                applySpeed(document.querySelector('video'));
-            }
-        }
+  ns.player.watchVideo((video) => {
+    const onReady = () => applySpeed(video);
+    video.addEventListener('canplay', onReady);
+    video.addEventListener('play', onReady);
+    video.addEventListener('ratechange', () => {
+      // Re-assert if player resets rate (ignore user-driven 1.0 when we want non-1)
+      if (savedSpeed !== 1.0 && Math.abs(video.playbackRate - savedSpeed) > 0.001) {
+        applySpeed(video);
+      }
     });
+    applySpeed(video);
+    return () => {
+      video.removeEventListener('canplay', onReady);
+      video.removeEventListener('play', onReady);
+    };
+  });
+
+  ns.settings?.onChange((key, value) => {
+    if (key === 'playbackSpeed' || key === '*') {
+      if (key === 'playbackSpeed') {
+        const speed = parseFloat(value);
+        if (!isNaN(speed) && speed > 0) savedSpeed = speed;
+      } else {
+        readSpeedFromSettings();
+      }
+      applySpeed(ns.player.getVideo());
+    }
+  });
+
+  readSpeedFromSettings();
+  ns.log?.('playbackSpeed ready');
 })();

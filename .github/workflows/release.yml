@@ -15,7 +15,17 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Fetch all history and tags
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install & Test
+        run: |
+          npm install --no-fund --no-audit
+          npm test
 
       - name: Extract Version and Check Tag
         id: version_check
@@ -25,10 +35,8 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag=$TAG" >> $GITHUB_OUTPUT
 
-          # Fetch tags to ensure we have the latest tags from remote
           git fetch --tags
 
-          # Check if the tag already exists
           if git rev-parse "$TAG" >/dev/null 2>&1; then
             echo "exists=true" >> $GITHUB_OUTPUT
             echo "Tag $TAG already exists. Skipping release creation."
@@ -49,25 +57,44 @@ jobs:
         if: steps.version_check.outputs.exists == 'false'
         run: |
           mkdir dist
-          cp -r manifest.json background.js content.js rules.json settingsIntegration.js features icons styles popup LICENSE README.md dist/
-          
-          # Create ZIP
+          cp -r manifest.json background.js content.js rules.json settingsIntegration.js \
+            features icons styles popup LICENSE README.md lib shared dist/
+
           cd dist
           zip -r ../YouTubeTVMode.zip *
           cd ..
-          
-          # Generate private key and create CRX
-          openssl genrsa -out key.pem 2048
-          npx -y crx pack dist -p key.pem -o YouTubeTVMode.crx
 
-      - name: Create GitHub Release
-        if: steps.version_check.outputs.exists == 'false'
+          # Stable CRX only when CRX_PRIVATE_KEY secret is configured.
+          # Generating a new key every release breaks update identity.
+          if [ -n "${{ secrets.CRX_PRIVATE_KEY }}" ]; then
+            echo "${{ secrets.CRX_PRIVATE_KEY }}" > key.pem
+            npx -y crx pack dist -p key.pem -o YouTubeTVMode.crx
+            echo "crx=true" >> $GITHUB_ENV
+          else
+            echo "CRX_PRIVATE_KEY not set — shipping ZIP only."
+            echo "crx=false" >> $GITHUB_ENV
+          fi
+
+      - name: Create GitHub Release (ZIP + CRX)
+        if: steps.version_check.outputs.exists == 'false' && env.crx == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version_check.outputs.tag }}
           files: |
             YouTubeTVMode.zip
             YouTubeTVMode.crx
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GitHub Release (ZIP only)
+        if: steps.version_check.outputs.exists == 'false' && env.crx != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version_check.outputs.tag }}
+          files: |
+            YouTubeTVMode.zip
           draft: false
           prerelease: false
         env:

@@ -1,156 +1,205 @@
-// Content Script - Feature Coordinator
-// Conditionally injects features based on TV Mode state
-
+// Content Script — feature coordinator, settings bridge, conditional injection
 (() => {
-    'use strict';
+  'use strict';
 
-    // Helper: Inject script into page context
-    function injectScript(src) {
-        console.log(`[Content Script] Injecting: ${src}`);
-        const script = document.createElement('script');
-        script.src = chrome.runtime.getURL(src);
-        script.onload = () => {
-            script.remove();
-            console.log(`[Content Script] Loaded: ${src}`);
-        };
-        script.onerror = () => {
-            console.error(`[Content Script] Failed to load: ${src}`);
-        };
-        (document.head || document.documentElement).appendChild(script);
+  const Y = globalThis.YTTVM || {};
+  const MSG = Y.MESSAGE || {
+    PAGE: 'yttvm-page',
+    CONTENT: 'yttvm-content',
+    SETTINGS_CHANGE: 'yttvm-settings-change',
+    TOKEN: 'yttvm-bridge-v1'
+  };
+  const RELOAD_KEYS = Y.RELOAD_REQUIRED_KEYS || [];
+  const INSTANT_KEYS = Y.INSTANT_APPLY_KEYS || [];
+
+  function injectScript(src) {
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = chrome.runtime.getURL(src);
+      script.async = false;
+      script.onload = () => {
+        script.remove();
+        resolve();
+      };
+      script.onerror = () => {
+        console.error('[YTTVM] Failed to load', src);
+        reject(new Error(src));
+      };
+      (document.head || document.documentElement).appendChild(script);
+    });
+  }
+
+  async function injectScripts(list) {
+    for (const src of list) {
+      try {
+        await injectScript(src);
+      } catch {
+        /* continue */
+      }
     }
+  }
 
-    // Check if we're on YouTube TV
-    const isTVUrl = window.location.href.includes('youtube.com/tv');
+  const isTVUrl = window.location.href.includes('youtube.com/tv');
 
-    // For document_start timing, inject scripts synchronously ASAP
-    if (isTVUrl) {
-        console.log('[Content Script] TV URL detected, injecting core features immediately');
+  const SHARED = [
+    'lib/defaults.js',
+    'lib/thumbnail-url.js',
+    'shared/page-init.js',
+    'shared/settings-bridge.js',
+    'shared/json-interceptor.js',
+    'shared/player-utils.js'
+  ];
 
-        // These must run at document_start to intercept early requests
-        injectScript('features/deviceSpoof.js');
-        injectScript('features/highQualityThumbnails.js'); // Must run early to intercept fetch
+  /** Always early (before first paint / network identity). */
+  const CRITICAL = [
+    'features/deviceSpoof.js',
+    'features/highQualityThumbnails.js'
+  ];
 
-        // Conditional features: only inject if enabled
-        chrome.storage.local.get(['backgroundPlaybackEnabled'], (result) => {
-            // Background playback: only inject when enabled (default: on)
-            if (result.backgroundPlaybackEnabled !== false) {
-                injectScript('features/backgroundPlayback.js');
-            }
+  const OPTIONAL = [
+    {
+      src: 'features/backgroundPlayback.js',
+      setting: 'backgroundPlaybackEnabled',
+      defaultOn: true
+    },
+    { src: 'features/leanbackMode.js', always: true },
+    { src: 'features/adblock.js', setting: 'adBlockEnabled', defaultOn: true },
+    {
+      src: 'features/forceResolution.js',
+      setting: 'forceResolutionEnabled',
+      defaultOn: true
+    },
+    {
+      src: 'features/keyRemapping.js',
+      setting: 'keyRemappingEnabled',
+      defaultOn: true
+    },
+    { src: 'features/playbackSpeed.js', always: true },
+    { src: 'features/hideGuide.js', always: true },
+    {
+      src: 'features/sponsorblock.js',
+      setting: 'sponsorBlockEnabled',
+      defaultOn: false
+    },
+    { src: 'settingsIntegration.js', always: true }
+  ];
+
+  function shouldInject(entry, storage) {
+    if (entry.always) return true;
+    const key = entry.setting;
+    if (!key) return true;
+    const val = storage[key];
+    if (entry.defaultOn) return val !== false;
+    return val === true;
+  }
+
+  if (isTVUrl) {
+    document.documentElement.dataset.yttvmLeanbackCss = chrome.runtime.getURL(
+      'styles/leanback.css'
+    );
+
+    (async () => {
+      // Fire SHARED and CRITICAL in parallel for faster startup
+      await Promise.all([injectScripts(SHARED), injectScripts(CRITICAL)]);
+
+      chrome.storage.local.get(null, async (storage) => {
+        if (chrome.runtime.lastError) storage = {};
+        const optional = OPTIONAL.filter((e) => shouldInject(e, storage)).map((e) => e.src);
+        await injectScripts(optional);
+      });
+    })();
+  }
+
+  let resizeTimer;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      try {
+        chrome.runtime.sendMessage({ type: 'WINDOW_RESIZED' }, () => {
+          void chrome.runtime.lastError;
         });
+      } catch {
+        /* context invalidated */
+      }
+    }, 100);
+  });
 
-        // These can load slightly later but still early
-        // Pass leanback CSS URL to page context (leanbackMode.js needs it)
-        document.documentElement.dataset.yttvmLeanbackCss = chrome.runtime.getURL('styles/leanback.css');
-        injectScript('features/leanbackMode.js');
-        injectScript('features/adblock.js');
-        injectScript('features/forceResolution.js');
-        injectScript('features/keyRemapping.js');
-        injectScript('features/playbackSpeed.js');
-        injectScript('features/hideGuide.js');
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return;
 
-        injectScript('settingsIntegration.js');
+    if (RELOAD_KEYS.some((key) => changes[key])) {
+      setTimeout(() => window.location.reload(), 100);
+      return;
     }
 
-    // Notify background when window resizes (triggers fullscreen-exit restore)
-    let resizeTimer;
-    window.addEventListener('resize', () => {
-        clearTimeout(resizeTimer);
-        resizeTimer = setTimeout(() => {
-            try {
-                chrome.runtime.sendMessage({ type: 'WINDOW_RESIZED' }, () => {
-                    // Suppress unchecked runtime.lastError warnings / context invalidation warnings
-                    const err = chrome.runtime.lastError;
-                });
-            } catch (e) {
-                // Suppress "Extension context invalidated" errors
-            }
-        }, 100);
-    });
+    if (INSTANT_KEYS.some((key) => changes[key])) {
+      Object.keys(changes).forEach((key) => {
+        if (!INSTANT_KEYS.includes(key)) return;
+        window.postMessage(
+          {
+            source: MSG.SETTINGS_CHANGE,
+            key,
+            value: changes[key].newValue,
+            token: MSG.TOKEN
+          },
+          window.location.origin
+        );
+      });
+    }
+  });
 
-    // Listen for storage changes
-    chrome.storage.onChanged.addListener((changes, area) => {
-        if (area === 'local') {
-            // Features that require page reload (script injection needed)
-            const reloadRequiredFeatures = [
-                'tvModeEnabled',
-                'forceResolutionEnabled',
-                'backgroundPlaybackEnabled',
-                'highQualityThumbnailsEnabled',
-                'keyRemappingEnabled',
-                'adBlockEnabled'
-            ];
+  window.addEventListener('message', (event) => {
+    if (event.source !== window || !event.data) return;
+    if (event.data.source !== MSG.PAGE) return;
+    if (event.data.token && event.data.token !== MSG.TOKEN) return;
 
-            // Features that apply instantly via postMessage (no reload needed)
-            const instantApplyFeatures = [
-                'autoFullscreenEnabled',
-                'leanbackModeEnabled',
-                'playbackSpeed',
-                'speedIncrement',
-                'disabledSidebarContents'
-            ];
+    if (event.data.type === 'GET_SETTINGS') {
+      chrome.storage.local.get(null, (result) => {
+        window.postMessage(
+          {
+            source: MSG.CONTENT,
+            type: 'SETTINGS_RESPONSE',
+            settings: result,
+            token: MSG.TOKEN
+          },
+          window.location.origin
+        );
 
-            // Check if reload is needed
-            if (reloadRequiredFeatures.some(key => changes[key])) {
-                console.log('[YouTube TV Mode] Settings changed, reloading page...');
-                setTimeout(() => window.location.reload(), 100);
-            }
-            // For instant-apply features, notify page scripts
-            else if (instantApplyFeatures.some(key => changes[key])) {
-                Object.keys(changes).forEach(key => {
-                    window.postMessage({
-                        source: 'yttvm-settings-change',
-                        key,
-                        value: changes[key].newValue
-                    }, '*');
-                });
-            }
-        }
-    });
+        const push = (key, value) => {
+          window.postMessage(
+            {
+              source: MSG.SETTINGS_CHANGE,
+              key,
+              value,
+              token: MSG.TOKEN
+            },
+            window.location.origin
+          );
+        };
 
-    // Message relay between page scripts and extension storage
-    window.addEventListener('message', (event) => {
-        if (event.source !== window || !event.data || event.data.source !== 'yttvm-page') {
-            return;
-        }
-
-        if (event.data.type === 'GET_SETTINGS') {
-            // Read all settings from storage
-            console.log('[YouTube TV Mode Content] Getting settings from storage');
-            chrome.storage.local.get(null, (result) => {
-                console.log('[YouTube TV Mode Content] Sending settings to page:', result);
-
-                // Send settings response (for settingsIntegration.js and hideGuide.js)
-                window.postMessage({
-                    source: 'yttvm-content',
-                    type: 'SETTINGS_RESPONSE',
-                    settings: result
-                }, '*');
-
-                // Also send initial state for instant-apply features
-                window.postMessage({
-                    source: 'yttvm-settings-change',
-                    key: 'leanbackModeEnabled',
-                    value: result.leanbackModeEnabled === true
-                }, '*');
-                window.postMessage({
-                    source: 'yttvm-settings-change',
-                    key: 'disabledSidebarContents',
-                    value: result.disabledSidebarContents || []
-                }, '*');
-                window.postMessage({
-                    source: 'yttvm-settings-change',
-                    key: 'playbackSpeed',
-                    value: result.playbackSpeed || 1.0
-                }, '*');
-
-            });
-        } else if (event.data.type === 'SET_SETTINGS') {
-            // Save settings to storage
-            console.log('[YouTube TV Mode Content] Saving settings to storage:', event.data.settings);
-            chrome.storage.local.set(event.data.settings, () => {
-                console.log('[YouTube TV Mode Content] Settings saved successfully');
-            });
-        }
-    });
-
+        push('leanbackModeEnabled', result.leanbackModeEnabled === true);
+        push('disabledSidebarContents', result.disabledSidebarContents || []);
+        push('playbackSpeed', result.playbackSpeed || 1.0);
+        push(
+          'highQualityThumbnailsEnabled',
+          result.highQualityThumbnailsEnabled !== false
+        );
+        push('keyRemappingEnabled', result.keyRemappingEnabled !== false);
+        push('adBlockEnabled', result.adBlockEnabled !== false);
+        push('forceResolutionEnabled', result.forceResolutionEnabled !== false);
+        push('preferredVideoQuality', result.preferredVideoQuality || 'highres');
+        push('sponsorBlockEnabled', result.sponsorBlockEnabled === true);
+        push(
+          'sponsorBlockCategories',
+          result.sponsorBlockCategories || Y.DEFAULTS?.sponsorBlockCategories
+        );
+        push('hidePaidPromotion', result.hidePaidPromotion !== false);
+        push('hideEndScreenCards', result.hideEndScreenCards === true);
+        push('hideSigninReminder', result.hideSigninReminder === true);
+        push('debugLogging', result.debugLogging === true);
+      });
+    } else if (event.data.type === 'SET_SETTINGS') {
+      chrome.storage.local.set(event.data.settings || {});
+    }
+  });
 })();
